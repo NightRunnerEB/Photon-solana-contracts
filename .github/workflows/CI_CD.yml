@@ -1,1 +1,124 @@
+name: CI/CD Pipeline
 
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - mainnet
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  versioning_and_prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Print Version
+        run: echo "Version is ${{ github.ref_name }}.${{ github.run_id }}"
+
+  clippy:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.78.0
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Initialize submodules
+        run: git submodule update --init
+
+      - name: Set Rust version
+        run: |
+          rustup default 1.78.0
+          rustup component add clippy
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -Dwarnings
+
+  tests:
+    runs-on: ubuntu-latest
+    container:
+      image: rust:1.78.0
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Run Tests
+        run: cargo test --workspace --exclude entangle-photon-sol -- --skip test_send
+
+  build_solana:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Initialize submodules
+        run: git submodule update --init
+
+      - name: Build Solana Docker Image
+        run: |
+          docker build -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:${{ github.ref_name }}.${{ github.run_id }} \
+                       -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:latest \
+                       -f ./docker/Dockerfile_solana .
+
+  build_module:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Initialize submodules
+        run: git submodule update --init
+
+      - name: Build Module Docker Image
+        run: |
+          docker build -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} \
+                       -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:latest \
+                       -f ./docker/Dockerfile_module .
+
+  retag:
+    runs-on: ubuntu-latest
+    if: github.ref_name == 'testnet' || github.ref_name == 'mainnet'
+    steps:
+      - name: Retag Docker Image
+        run: docker tag 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} \
+                     899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.latest
+
+  solana_push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push Solana Docker Images
+        run: |
+          docker push 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:${{ github.ref_name }}.${{ github.run_id }}
+          docker push 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:latest
+
+  module_push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Push Module Docker Images
+        run: |
+          docker push 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }}
+          docker push 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:latest
+
+  module_latest_push:
+    runs-on: ubuntu-latest
+    if: github.ref_name == 'testnet' || github.ref_name == 'mainnet'
+    steps:
+      - name: Push Module Latest Docker Image
+        run: |
+          docker push 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.latest
+          docker rmi 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.latest
+
+  clean_up_images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean up Docker Images
+        run: |
+          docker rmi 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:${{ github.ref_name }}.${{ github.run_id }} -f
+          docker rmi 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:latest || true
+          docker rmi 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} -f
+          docker rmi 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:latest || true
