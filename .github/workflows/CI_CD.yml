@@ -101,6 +101,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build_solana]
     steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+      
+      - name: List Docker Images
+        run: docker images
+  
       - name: Push Solana Docker Images
         run: |
           docker push 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:${{ github.ref_name }}.${{ github.run_id }}
