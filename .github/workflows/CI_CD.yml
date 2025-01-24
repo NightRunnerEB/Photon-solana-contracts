@@ -2,13 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
-      - develop
-      - mainnet
+    branches: [main, develop, mainnet, testnet]
   pull_request:
-    branches:
-      - '**'
+    branches: ['**']
 
 jobs:
   versioning_and_prepare:
@@ -22,6 +18,7 @@ jobs:
 
   clippy:
     runs-on: ubuntu-latest
+    needs: [versioning_and_prepare]
     container:
       image: rust:1.78.0
     steps:
@@ -43,9 +40,9 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets -- -Dwarnings
 
-
   tests:
     runs-on: ubuntu-latest
+    needs: [versioning_and_prepare]
     container:
       image: rust:1.78.0
     steps:
@@ -57,6 +54,7 @@ jobs:
 
   build_solana:
     runs-on: ubuntu-latest
+    needs: [clippy, tests]
     steps:
       - name: Check out code
         uses: actions/checkout@v3
@@ -66,12 +64,14 @@ jobs:
 
       - name: Build Solana Docker Image
         run: |
-          docker build -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:${{ github.ref_name }}.${{ github.run_id }} \
-                       -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:latest \
-                       -f ./docker/Dockerfile_solana .
+          docker build \
+            -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:${{ github.ref_name }}.${{ github.run_id }} \
+            -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-solana:latest \
+            -f ./docker/Dockerfile_solana .
 
   build_module:
     runs-on: ubuntu-latest
+    needs: [clippy, tests]
     steps:
       - name: Check out code
         uses: actions/checkout@v3
@@ -81,20 +81,25 @@ jobs:
 
       - name: Build Module Docker Image
         run: |
-          docker build -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} \
-                       -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:latest \
-                       -f ./docker/Dockerfile_module .
+          docker build \
+            -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} \
+            -t 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:latest \
+            -f ./docker/Dockerfile_module .
 
   retag:
     runs-on: ubuntu-latest
+    needs: [build_module]
     if: github.ref_name == 'testnet' || github.ref_name == 'mainnet'
     steps:
       - name: Retag Docker Image
-        run: docker tag 899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} \
-                     899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.latest
+        run: |
+          docker tag \
+            899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.${{ github.run_id }} \
+            899260217834.dkr.ecr.us-east-1.amazonaws.com/photon-module:${{ github.ref_name }}.latest
 
   solana_push:
     runs-on: ubuntu-latest
+    needs: [build_solana]
     steps:
       - name: Push Solana Docker Images
         run: |
@@ -103,6 +108,7 @@ jobs:
 
   module_push:
     runs-on: ubuntu-latest
+    needs: [build_module, retag]           
     steps:
       - name: Push Module Docker Images
         run: |
@@ -111,6 +117,7 @@ jobs:
 
   module_latest_push:
     runs-on: ubuntu-latest
+    needs: [module_push]
     if: github.ref_name == 'testnet' || github.ref_name == 'mainnet'
     steps:
       - name: Push Module Latest Docker Image
@@ -120,6 +127,7 @@ jobs:
 
   clean_up_images:
     runs-on: ubuntu-latest
+    needs: [solana_push, module_push, module_latest_push]
     steps:
       - name: Clean up Docker Images
         run: |
