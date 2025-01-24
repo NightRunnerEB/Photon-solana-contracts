@@ -27,17 +27,22 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v3
-
+  
+      - name: Trust submodule directory
+        run: |
+          git config --global --add safe.directory /__w/Photon-solana-contracts/Photon-solana-contracts
+  
       - name: Initialize submodules
         run: git submodule update --init
-
+  
       - name: Set Rust version
         run: |
           rustup default 1.78.0
           rustup component add clippy
-
+  
       - name: Run Clippy
         run: cargo clippy --all-targets -- -Dwarnings
+
 
   tests:
     runs-on: ubuntu-latest
